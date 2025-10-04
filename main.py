@@ -2,13 +2,17 @@ import requests
 from bs4 import BeautifulSoup
 import json
 import time
+from googletrans import Translator
+
+translator = Translator()
+
 
 # --- Константы ---
 # ВАЖНО: Используем русскую версию каталога, судя по предоставленному HTML-коду
 x = "backend"
 BASE_CATALOG_URL = f'https://www.rabota.md/ro/jobs-moldova-{x}'
 BASE_URL = 'https://www.rabota.md'
-PAGES_TO_SCRAPE = 2  # Количество страниц, которое нужно обработать (измените на 4 или более)
+PAGES_TO_SCRAPE = 10  # Количество страниц, которое нужно обработать (измените на 4 или более)
 
 headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
@@ -79,45 +83,62 @@ else:
     print(f"\n--- Начинаю обработку {len(all_vacancy_urls)} собранных вакансий ---")
 
     for i, url in enumerate(all_vacancy_urls):
-        print(i)
+        print(f"Обрабатываю {i + 1}/{len(all_vacancy_urls)}: {url}")
         try:
             response = requests.get(url, headers=headers)
             response.raise_for_status()
 
             soup = BeautifulSoup(response.text, 'html.parser')
 
-            # --- Извлечение данных ---
-            title_tag = soup.find('h1', class_=['vacancy-title' , "text-3xl"])
-            title = title_tag.get_text(strip=True) if title_tag else 'Название не найдено'
+            # --- НАЧАЛО ИЗМЕНЕННОГО БЛОКА ---
 
-            # --- ГИБКИЙ ПОИСК ОПИСАНИЯ ---
+            # --- Сначала извлекаем ОПИСАНИЕ ---
             description = 'Описание не найдено'
-            description_div = soup.find('div', class_= ['vacancy-content', 'inbody'])
-
+            description_div = soup.find('div', class_=['vacancy-content', 'inbody'])
             if description_div:
                 description = description_div.get_text('\n', strip=True)
 
+            # --- Теперь извлекаем ЗАГОЛОВОК ---
+            title_tag = soup.find('h1', class_=['vacancy-title', 'text-3xl'])
+            title = None  # Инициализируем title как None
+
+            if title_tag:
+                title = title_tag.get_text(strip=True)
+
+            # ЕСЛИ заголовок в <h1> не найден И описание существует,
+            # БЕРЕМ первую строку из описания в качестве заголовка.
+            if not title and description != 'missing description':
+                title = description.split('\n', 1)[0].strip()
+
+            # Если title все еще не определен (например, не было ни h1, ни описания)
+            if not title:
+                title = 'missing title'  # Устанавливаем значение по умолчанию
+
+            # --- КОНЕЦ ИЗМЕНЕННОГО БЛОКА ---
+
             vacancy_data = {
                 'url': url,
-                'title': title,
-                'description': description,
-                "category" : "Technical",
-                "branch" : x
+                'title': title.upper().replace('-', ' '),  # Приводим к ВЕРХНЕМУ РЕГИСТРУ и заменяем дефис на пробел
+                'description': translator.translate(description.strip().lower(),dest = "en"),  # Приводим к нижнему регистру
+                "category": "Technical",
+                "branch": x
             }
 
             all_vacancies.append(vacancy_data)
             time.sleep(1)
 
         except requests.exceptions.HTTPError as http_err:
-            print(f"❌ Ошибка HTTP при обработке {url}: {http_err}")
+            print(f"   ❌ Ошибка HTTP при обработке {url}: {http_err}")
         except Exception as err:
-            print(f"❌ Произошла ошибка при обработке {url}: {err}")
+            print(f"   ❌ Произошла ошибка при обработке {url}: {err}")
 
 # 3. ШАГ 3: Сохранение данных
 # =========================================================
 
 if all_vacancies:
     file_name = 'all_vacancies_final.json'
+    # Используем 'a' (append), чтобы добавлять в файл, а не перезаписывать
+    # Если нужна перезапись, замените 'a' на 'w'
     with open(file_name, 'a', encoding='utf-8') as f:
         json.dump(all_vacancies, f, ensure_ascii=False, indent=4)
 

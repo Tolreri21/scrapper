@@ -1,0 +1,1 @@
+Имитация чистого текста из LaTeX: Junior Developer, Java, SQL, Git.
